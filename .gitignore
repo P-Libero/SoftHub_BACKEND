@@ -1,0 +1,15 @@
+.env
+uploads/
+
+softhub
+main
+*.exe
+*.test
+*.out
+
+.idea/
+# macOS 系统生成的隐藏文件
+.DS_Store
+# 忽略所有 Markdown 笔记（仅放行 README.md）
+*.md
+!README.md
