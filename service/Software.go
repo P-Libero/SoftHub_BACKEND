@@ -20,8 +20,11 @@ type SoftwareService struct {
 	Repo *repository.SoftwareRepository
 }
 
-func NewSoftwareService(repo *repository.SoftwareRepository) *SoftwareService {
-	return &SoftwareService{Repo: repo}
+func NewSoftwareService(repo *repository.SoftwareRepository, storage *storage.MinIO) *SoftwareService {
+	return &SoftwareService{
+		Repo:    repo,
+		Storage: storage,
+	}
 }
 
 func (s *SoftwareService) List(ctx context.Context) ([]model.Software, error) {
