@@ -156,8 +156,7 @@ func (s *SoftwareService) UploadVersionFile(ctx context.Context, softwareID uint
 		return nil, errors.New("上传文件失败")
 	}
 	//更新位置
-	// TODO: 练习阶段暂存磁盘路径，接入对象存储后改为对象 key / 下载 URL
-	if err := s.Repo.UpdateVersionDownloadURL(ctx, softwareVersion, savePath); err != nil {
+	if err := s.Repo.UpdateVersionDownloadURL(ctx, softwareVersion, objectName); err != nil {
 		return nil, errors.New("更新软件下载地址失败")
 	}
 	return softwareVersion, nil
