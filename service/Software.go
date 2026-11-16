@@ -181,18 +181,3 @@ func (s *SoftwareService) GetDownloadFilePath(ctx context.Context, softwareID ui
 	return filePath, downloadName, nil
 
 }
-
-func saveUploadedFile(file *multipart.FileHeader, dst string) error {
-	src, err := file.Open() //先打开它 使它可读
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	out, err := os.Create(dst) //然后创建文件
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, src) //把文件传输给out
-	return err
-}
