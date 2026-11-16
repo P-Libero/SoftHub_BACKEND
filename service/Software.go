@@ -4,20 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"mime/multipart"
-	"os"
 	"path/filepath"
 	"softhub/model"
 	"softhub/repository"
 	"softhub/request"
-	"strconv"
+	"softhub/storage"
 
 	"gorm.io/gorm"
 )
 
 type SoftwareService struct {
-	Repo *repository.SoftwareRepository
+	Repo    *repository.SoftwareRepository
+	Storage *storage.MinIO
 }
 
 func NewSoftwareService(repo *repository.SoftwareRepository, storage *storage.MinIO) *SoftwareService {
@@ -74,7 +73,12 @@ func (s *SoftwareService) Update(ctx context.Context, id uint64, req *request.So
 	return software, nil
 }
 
+// 删除软件版本 记录 以及 MinIO中对应的安装包对象
+
 func (s *SoftwareService) Delete(ctx context.Context, id uint64) (*model.Software, error) {
+
+	version, _ := s.Repo.ListVersionBySoftwareID(ctx, id)
+	//进行数据库的删除任务
 	software, err := s.Repo.DeleteWithVersion(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -82,8 +86,14 @@ func (s *SoftwareService) Delete(ctx context.Context, id uint64) (*model.Softwar
 		}
 		return nil, err
 	}
-	uploadDir := filepath.Join("uploads", "software", strconv.FormatUint(id, 10))
-	_ = os.RemoveAll(uploadDir)
+
+	//进行对象存储的删除
+	for _, v := range version {
+		if v.DownloadURL != "" {
+			_ = s.Storage.DeleteFile(ctx, v.DownloadURL)
+		}
+	}
+
 	return software, nil
 }
 
@@ -141,42 +151,45 @@ func (s *SoftwareService) UploadVersionFile(ctx context.Context, softwareID uint
 		return nil, errors.New("上传文件大小不能大于500MB")
 	}
 
-	//这里可能会有优化 比如以后加入对象存储时
-	//先创建目录
-	uploadDir := filepath.Join("uploads", "software", strconv.FormatUint(softwareID, 10))
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		return nil, errors.New("创建目录失败")
+	src, err := file.Open()
+	if err != nil {
+		return nil, errors.New("打开上传文件失败")
 	}
-	//然后拼接上传路径
-	ext := filepath.Ext(file.Filename)
-	filename := fmt.Sprintf("version-%d%s", versionID, ext)
-	savePath := filepath.Join(uploadDir, filename)
-	//将上传的文件写入磁盘
-	if err := saveUploadedFile(file, savePath); err != nil {
+	defer src.Close()                  //防止句柄泄露
+	ext := filepath.Ext(file.Filename) //提取后缀
+	objectName := fmt.Sprintf("software/%d/version-%d%s", softwareVersion.ID, versionID, ext)
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" {
+		//如果找不到格式就默认二进制
+		contentType = "application/octet-stream"
+	}
+	//先上传到MinIO
+	if err := s.Storage.UploadFile(ctx, objectName, src, file.Size, contentType); err != nil {
 		return nil, errors.New("上传文件失败")
 	}
-	//更新位置
+
+	//将对象键名（objectName）持久化写入数据库的 download_url 字段
 	if err := s.Repo.UpdateVersionDownloadURL(ctx, softwareVersion, objectName); err != nil {
 		return nil, errors.New("更新软件下载地址失败")
 	}
 	return softwareVersion, nil
 }
 
-func (s *SoftwareService) GetDownloadFilePath(ctx context.Context, softwareID uint64, versionID uint64) (string, string, error) {
-	if _, err := s.Repo.FindVersionBySoftwareIDAndVersionID(ctx, softwareID, versionID); err != nil {
+func (s *SoftwareService) GetDownloadURL(ctx context.Context, softwareID uint64, versionID uint64) (string, error) {
+	softwareVersion, err := s.Repo.FindVersionBySoftwareIDAndVersionID(ctx, softwareID, versionID) //先找存不存在
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", "", errors.New("软件版本不存在")
+			return "", errors.New("软件版本不存在")
 		}
-		return "", "", err
+		return "", err
 	}
-	pattern := filepath.Join("uploads", "software", strconv.FormatUint(softwareID, 10), fmt.Sprintf("version-%d.*", versionID))
-	//匹配所以后缀
-	matches, err := filepath.Glob(pattern)
-	if err != nil || len(matches) == 0 {
-		return "", "", errors.New("该版本没有上传文件")
+	if softwareVersion.DownloadURL == "" {
+		return "", errors.New("该版本暂未上传文件")
 	}
-	filePath := matches[0]
-	downloadName := filepath.Base(filePath)
-	return filePath, downloadName, nil
 
+	downloadURL, err := s.Storage.GeneratePresignedURL(ctx, softwareVersion.DownloadURL)
+	if err != nil {
+		return "", errors.New("获取下载链接失败")
+	}
+	return downloadURL, nil
 }
