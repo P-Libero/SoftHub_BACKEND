@@ -157,7 +157,7 @@ func (s *SoftwareService) UploadVersionFile(ctx context.Context, softwareID uint
 	}
 	defer src.Close()                  //防止句柄泄露
 	ext := filepath.Ext(file.Filename) //提取后缀
-	objectName := fmt.Sprintf("software/%d/version-%d%s", softwareVersion.ID, versionID, ext)
+	objectName := fmt.Sprintf("software/%d/version-%d%s", softwareID, versionID, ext)
 	contentType := file.Header.Get("Content-Type")
 	if contentType == "" {
 		//如果找不到格式就默认二进制
