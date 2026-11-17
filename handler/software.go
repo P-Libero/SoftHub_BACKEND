@@ -188,10 +188,11 @@ func (h *SoftwareHandler) DownloadVersionFile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	filepath, downloadName, err := h.Service.GetDownloadFilePath(c.Request.Context(), softwareID, versionID)
+
+	downloadURL, err := h.Service.GetDownloadURL(c.Request.Context(), softwareID, versionID)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	c.FileAttachment(filepath, downloadName)
+	response.Success(c, gin.H{"download_url": downloadURL}) //封装成json date数据
 }

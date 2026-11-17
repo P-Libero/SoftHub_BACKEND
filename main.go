@@ -10,6 +10,7 @@ import (
 	"softhub/repository"
 	"softhub/router"
 	"softhub/service"
+	"softhub/storage"
 
 	"github.com/joho/godotenv"
 )
@@ -38,11 +39,17 @@ func main() {
 		log.Fatal("failed to migrate database: ", err)
 	}
 
+	minioStorage, err := storage.NewMinIO(cfg.MinIO)
+	if err != nil {
+		log.Fatal("failed to connect minio storage: ", err)
+	}
+
 	//依赖注入
 	softwareRepo := repository.NewSoftwareRepository(db)
 	userRepo := repository.NewUserRepository(db)
 
-	softwareService := service.NewSoftwareService(softwareRepo)
+
+	softwareService := service.NewSoftwareService(softwareRepo, minioStorage)
 	userService := service.NewUserService(userRepo)
 
 	//确保管理员账号存在

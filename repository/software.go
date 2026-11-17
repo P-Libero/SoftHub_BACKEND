@@ -93,7 +93,6 @@ func (r *SoftwareRepository) CreateVersion(ctx context.Context, softwareID uint6
 			VersionID:   maxVersionID + 1,
 			Version:     Req.Version,
 			Description: Req.Description,
-			DownloadURL: Req.DownloadURL,
 		}
 		if err := tx.Create(&softwareVersion).Error; err != nil {
 			return err
