@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -12,6 +13,7 @@ type Config struct {
 	JWTSecret     string
 	DB            Database
 	MinIO         MinIO
+	Redis         Redis
 }
 
 type Database struct {
@@ -30,7 +32,22 @@ type MinIO struct {
 	UseSSL    bool
 }
 
+type Redis struct {
+	Addr     string //服务程序地址
+	Password string
+	DB       int //逻辑数据库默认编号0
+}
+
 func Load() (*Config, error) {
+	redisDB := 0
+	if dbstr := os.Getenv("REDIS_DB"); dbstr != "" {
+		var err error
+		redisDB, err = strconv.Atoi(dbstr) //转换为整型
+		if err != nil {
+			return nil, errors.New("REDIS_DB必须为整型")
+		}
+	}
+
 	cfg := &Config{
 		Port:          os.Getenv("PORT"),
 		AdminUsername: os.Getenv("ADMIN_USERNAME"),
@@ -49,6 +66,11 @@ func Load() (*Config, error) {
 			SecretKey: os.Getenv("MINIO_SECRET_KEY"),
 			Bucket:    os.Getenv("MINIO_BUCKET"),
 			UseSSL:    os.Getenv("MINIO_USE_SSL") == "true",
+		},
+		Redis: Redis{
+			Addr:     os.Getenv("REDIS_ADDR"),
+			Password: os.Getenv("REDIS_PASSWORD"),
+			DB:       redisDB,
 		},
 	}
 	if cfg.Port == "" {
@@ -78,5 +100,10 @@ func Load() (*Config, error) {
 	if cfg.MinIO.Bucket == "" {
 		cfg.MinIO.Bucket = "softhub"
 	}
+
+	if cfg.Redis.Addr == "" {
+		cfg.Redis.Addr = "127.0.0.1:6379"
+	}
+
 	return cfg, nil
 }
