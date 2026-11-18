@@ -32,6 +32,8 @@ flowchart LR
     Service --> Storage["对象存储层 (storage.MinIO)"]
     Repository --> MySQL[("MySQL (SoftHub)")]
     Storage --> MinIO[("MinIO 对象存储 (softhub)")]
+    Middleware --> Redis[("Redis (限流计数 / JWT 黑名单)")]
+    Service --> Redis
 ```
 
 ### 目录结构
@@ -41,7 +43,8 @@ SoftHub/
 ├── config/
 │   └── config.go            # 环境变量读取、默认值兜底与必填配置校验
 ├── database/
-│   └── mysql.go             # GORM MySQL 连接池配置与 5s 超时 PingContext 探活
+│   ├── mysql.go             # GORM MySQL 连接池配置与 5s 超时 PingContext 探活
+│   └── redis.go             # go-redis 客户端初始化与 5s 超时 Ping 探活
 ├── storage/
 │   └── minio.go             # MinIO 客户端封装：探活自动建桶、流式上传、预签名 URL、对象删除
 ├── model/
@@ -86,7 +89,7 @@ SoftHub/
 ## 核心工程特性
 
 1. **认证、权限与限流安全**
-   - **JWT 鉴权**：采用 HS256 对称签名算法，Token 有效期 30 分钟，签发方为 `SoftHub`；中间件解析后将 `user_id`、`username`、`role` 写入请求上下文。
+   - **JWT 鉴权**：采用 HS256 对称签名算法，Token 有效期 30 分钟，签发方为 `SoftHub`；中间件解析后将 `user_id`、`username`、`role`，以及原始 `token` 与 `expires_at` 写入请求上下文。
    - **RBAC 权限控制**：`RoleMiddleware(roles ...string)` 校验当前用户角色，非管理员访问管理端接口统一拦截并返回 HTTP `403`。
    - **密码与初始管理员**：用户密码采用 `bcrypt.DefaultCost` 哈希加盐存储，模型层标记 `json:"-"` 防止序列化泄露；服务启动时调用 `EnsureAdmin` 幂等初始化管理员账号。
    - **IP 限流与 CORS**：认证接口（注册、登录）挂载 `RateLimit(rdb, 5, time.Minute)`，使用 Redis 原子 `INCR` 计数，首次请求时 `EXPIRE` 设置窗口 TTL（Key 为 `ratelimit:<IP>`），超限返回 HTTP `429`；全局启用 CORS 跨域中间件并在 `OPTIONS` 预检请求直接返回 `204`。
@@ -139,6 +142,26 @@ SET FOREIGN_KEY_CHECKS = 1;
 - MySQL `8.0+`（提前创建数据库 `SoftHub`）
 - Docker 部署的 MinIO 服务（API 端口默认 `9000`）
 - Docker 部署的 Redis 服务（默认 `6379`，`redis:7-alpine`，需 `--appendonly yes` 持久化）
+
+如需使用 Docker Compose 快速启动本地 Redis（`docker-compose.yml`）：
+
+```yaml
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data:/data
+    command: redis-server --appendonly yes
+```
+
+```bash
+docker compose up -d
+docker exec -it redis redis-cli ping   # 返回 PONG 即成功
+```
 
 如需使用 Docker 快速启动本地 MinIO：
 
