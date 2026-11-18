@@ -43,14 +43,17 @@ func main() {
 	if err != nil {
 		log.Fatal("failed to connect minio storage: ", err)
 	}
+	rdb, err := database.ConnectRedis(cfg.Redis)
+	if err != nil {
+		log.Fatal("failed to connect redis: ", err)
+	}
 
 	//依赖注入
 	softwareRepo := repository.NewSoftwareRepository(db)
 	userRepo := repository.NewUserRepository(db)
 
-
 	softwareService := service.NewSoftwareService(softwareRepo, minioStorage)
-	userService := service.NewUserService(userRepo)
+	userService := service.NewUserService(userRepo, rdb)
 
 	//确保管理员账号存在
 	if cfg.AdminUsername != "" && cfg.AdminPassword != "" {
@@ -61,11 +64,10 @@ func main() {
 
 	softwareHandler := handler.NewSoftwareHandler(softwareService)
 	userHandler := handler.NewUserHandler(userService)
-
 	totalHandler := handler.NewTotalHandler(softwareHandler, userHandler)
 
 	//	main只负责初始化和启动服务。
-	r := router.SetupRouter(totalHandler)
+	r := router.SetupRouter(totalHandler, rdb)
 	addr := ":" + cfg.Port
 	log.Println("Starting server starting on " + addr)
 	if err := r.Run(addr); err != nil {

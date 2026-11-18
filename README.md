@@ -1,6 +1,6 @@
 # SoftHub — 软件发布与版本分发后端系统
 
-SoftHub 是一个基于 **Go + Gin + GORM + MySQL + MinIO + JWT** 构建的软件发布与版本分发后端服务。项目采用标准工程化三层分层架构（`Handler -> Service -> Repository + Storage`），实现了用户认证与 RBAC 权限控制、高并发下的版本安全递增、基于流式传输的对象存储集成，以及预签名直链下载能力。
+SoftHub 是一个基于 **Go + Gin + GORM + MySQL + MinIO + Redis + JWT** 构建的软件发布与版本分发后端服务。项目采用标准工程化三层分层架构（`Handler -> Service -> Repository + Storage`），实现了用户认证与 RBAC 权限控制、高并发下的版本安全递增、基于流式传输的对象存储集成，以及预签名直链下载能力。
 
 ---
 
@@ -67,7 +67,7 @@ SoftHub/
 ├── middleware/
 │   ├── cors.go              # 跨域响应头设置与 OPTIONS 预检请求拦截（204）
 │   ├── jwt.go               # Bearer Token 解析并将用户信息注入 gin.Context
-│   ├── ratelimit.go         # 基于闭包与 sync.Mutex 的 IP 固定时间窗口限流器
+│   ├── ratelimit.go         # 基于 Redis INCR + EXPIRE 的 IP 固定时间窗口分布式限流器
 │   └── role.go              # 基于角色列表的 RBAC 访问控制中间件
 ├── pkg/
 │   ├── response/
@@ -89,7 +89,8 @@ SoftHub/
    - **JWT 鉴权**：采用 HS256 对称签名算法，Token 有效期 30 分钟，签发方为 `SoftHub`；中间件解析后将 `user_id`、`username`、`role` 写入请求上下文。
    - **RBAC 权限控制**：`RoleMiddleware(roles ...string)` 校验当前用户角色，非管理员访问管理端接口统一拦截并返回 HTTP `403`。
    - **密码与初始管理员**：用户密码采用 `bcrypt.DefaultCost` 哈希加盐存储，模型层标记 `json:"-"` 防止序列化泄露；服务启动时调用 `EnsureAdmin` 幂等初始化管理员账号。
-   - **IP 限流与 CORS**：认证接口（注册、登录）挂载 `RateLimit(5, time.Minute)`，利用 Go 闭包逃逸到堆的内存 `map` 配合 `sync.Mutex` 实现按 IP 粒度的固定窗口限流，超限返回 HTTP `429`；全局启用 CORS 跨域中间件并在 `OPTIONS` 预检请求直接返回 `204`。
+   - **IP 限流与 CORS**：认证接口（注册、登录）挂载 `RateLimit(rdb, 5, time.Minute)`，使用 Redis 原子 `INCR` 计数，首次请求时 `EXPIRE` 设置窗口 TTL（Key 为 `ratelimit:<IP>`），超限返回 HTTP `429`；全局启用 CORS 跨域中间件并在 `OPTIONS` 预检请求直接返回 `204`。
+   - **JWT 登出黑名单**：`POST /api/v1/auth/logout` 将 Token 写入 Redis（Key 为 `jwt:blacklist:<token>`，TTL 为 Token 剩余有效期）；`JWTAuth(rdb)` 在本地验签通过后再查询黑名单，命中返回 `401`。Token 自然过期后 Key 由 Redis 自动回收。
 
 2. **并发安全与事务一致性**
    - **行级排他锁递增版本号**：在 `SoftwareRepository.CreateVersion` 中使用数据库事务配合 `SELECT ... FOR UPDATE` 锁住目标软件记录，原子计算 `COALESCE(MAX(version_id), 0) + 1`，防止并发发布版本时产生序号冲突。
@@ -137,6 +138,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 - Go `1.27+`
 - MySQL `8.0+`（提前创建数据库 `SoftHub`）
 - Docker 部署的 MinIO 服务（API 端口默认 `9000`）
+- Docker 部署的 Redis 服务（默认 `6379`，`redis:7-alpine`，需 `--appendonly yes` 持久化）
 
 如需使用 Docker 快速启动本地 MinIO：
 
@@ -171,6 +173,10 @@ MINIO_ACCESS_KEY="your_minio_access_key"
 MINIO_SECRET_KEY="your_minio_secret_key"
 MINIO_BUCKET="softhub"
 MINIO_USE_SSL="false"
+
+REDIS_ADDR="127.0.0.1:6379"
+REDIS_PASSWORD=""
+REDIS_DB="0"
 ```
 
 ### 3. 安装依赖并启动服务
@@ -207,6 +213,7 @@ go run main.go
 | 健康检查 | `GET /health` | 公开 | 返回服务存活状态 `{"status": "ok"}` |
 | 用户注册 | `POST /api/v1/auth/register` | 公开 + `RateLimit(5, 1m)` | JSON：`username` (3~50位)、`password` (6~72位) |
 | 用户登录 | `POST /api/v1/auth/login` | 公开 + `RateLimit(5, 1m)` | JSON：`username`、`password`，返回 JWT `token` |
+| 用户登出 | `POST /api/v1/auth/logout` | `JWTAuth()` | 将当前 Token 加入 Redis 黑名单，此后该 Token 返回 `401` |
 | 当前用户 | `GET /api/v1/user/me` | `JWTAuth()` | 需携带 `Authorization: Bearer <token>` |
 | 软件列表 | `GET /api/v1/software` | 公开 | 按创建时间倒序返回软件列表 |
 | 软件详情 | `GET /api/v1/software/:id` | 公开 | 根据软件 ID 查询详情 |

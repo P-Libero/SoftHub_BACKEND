@@ -7,6 +7,7 @@ import (
 	"softhub/pkg/utils"
 	"softhub/repository"
 	"softhub/request"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
@@ -99,4 +100,13 @@ func (s *UserService) EnsureAdmin(ctx context.Context, username, password string
 		PasswordHash: string(hash),
 		Role:         "admin",
 	})
+}
+
+// Logout 把 Token 加入黑名单，TTL 为 Token 的剩余有效期
+func (s *UserService) Logout(ctx context.Context, token string, expiresAt time.Time) error {
+	ttl := time.Until(expiresAt)
+	if ttl <= 0 { //过期了就不用管
+		return nil
+	}
+	return s.Rdb.Set(ctx, "jwt:blacklist:"+token, 1, ttl).Err()
 }

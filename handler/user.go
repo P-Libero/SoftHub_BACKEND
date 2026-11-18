@@ -73,3 +73,18 @@ func (h *UserHandler) FindMe(c *gin.Context) {
 	}
 	response.Success(c, user)
 }
+
+func (h *UserHandler) Logout(c *gin.Context) {
+	token := c.GetString(middleware.CtxToken)
+	expiresAt := c.GetTime(middleware.CtxExpiresAt)
+	if token == "" || expiresAt.IsZero() {
+		response.Unauthorized(c, "未登录")
+		return
+	}
+	if err := h.Service.Logout(c.Request.Context(), token, expiresAt); err != nil {
+		_ = c.Error(err)
+		response.ServerError(c, "服务器内部错误")
+		return
+	}
+	response.Success(c, nil)
+}

@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
-func SetupRouter(total *handler.TotalHandler) *gin.Engine {
+func SetupRouter(total *handler.TotalHandler, rdb *redis.Client) *gin.Engine {
 	gin.ForceConsoleColor()
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -17,13 +18,13 @@ func SetupRouter(total *handler.TotalHandler) *gin.Engine {
 
 	api := r.Group("/api")
 	v1 := api.Group("/v1")
-	softwareRouterGroup(v1, total)
-	authRouterGroup(v1, total)
-	userRouterGroup(v1, total)
+	softwareRouterGroup(v1, total, rdb)
+	authRouterGroup(v1, total, rdb)
+	userRouterGroup(v1, total, rdb)
 	return r
 }
 
-func softwareRouterGroup(v1 *gin.RouterGroup, total *handler.TotalHandler) {
+func softwareRouterGroup(v1 *gin.RouterGroup, total *handler.TotalHandler, rdb *redis.Client) {
 	h := total.Software
 	// 公开接口
 	v1.GET("/software", h.List)
@@ -34,7 +35,7 @@ func softwareRouterGroup(v1 *gin.RouterGroup, total *handler.TotalHandler) {
 
 	// 需要登录的管理员接口
 	authed := v1.Group("")
-	authed.Use(middleware.JWTAuth(), middleware.RoleMiddleware("admin"))
+	authed.Use(middleware.JWTAuth(rdb), middleware.RoleMiddleware("admin")) //限定admin才能进
 	{
 		authed.POST("/software", h.Create)
 		authed.PUT("/software/:id", h.Update)
@@ -44,15 +45,16 @@ func softwareRouterGroup(v1 *gin.RouterGroup, total *handler.TotalHandler) {
 	}
 }
 
-func authRouterGroup(v1 *gin.RouterGroup, total *handler.TotalHandler) {
+func authRouterGroup(v1 *gin.RouterGroup, total *handler.TotalHandler, rdb *redis.Client) {
 	auth := v1.Group("/auth")
-	auth.POST("/register", middleware.RateLimit(5, time.Minute), total.User.Register)
-	auth.POST("/login", middleware.RateLimit(5, time.Minute), total.User.Login)
+	auth.POST("/register", middleware.RateLimit(rdb, 5, time.Minute), total.User.Register)
+	auth.POST("/login", middleware.RateLimit(rdb, 5, time.Minute), total.User.Login)
+	auth.POST("/logout", middleware.JWTAuth(rdb), total.User.Logout)
 }
 
-func userRouterGroup(v1 *gin.RouterGroup, total *handler.TotalHandler) {
+func userRouterGroup(v1 *gin.RouterGroup, total *handler.TotalHandler, rdb *redis.Client) {
 	user := v1.Group("/user")
-	user.Use(middleware.JWTAuth())
+	user.Use(middleware.JWTAuth(rdb))
 	user.GET("/me", total.User.FindMe)
 }
 

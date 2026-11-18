@@ -20,7 +20,7 @@ func RateLimit(rdb *redis.Client, limit int, window time.Duration) gin.HandlerFu
 		// 构造当前客户端 IP 在 Redis 中的唯一限流 Key，例如 "ratelimit:127.0.0.1"
 		key := "ratelimit:" + c.ClientIP()
 		// TODO:之后修改为令牌桶 因为这里有边界双倍突刺的风险
-		count, err := rdb.Incr(ctx, key).Result()
+		count, err := rdb.Incr(ctx, key).Result() //这是给这个字段加1 键值对
 		if err != nil {
 			_ = c.Error(err)
 			response.ServerError(c, "")
