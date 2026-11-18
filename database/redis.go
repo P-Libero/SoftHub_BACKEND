@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"softhub/config"
 	"time"
 
@@ -9,6 +10,9 @@ import (
 )
 
 func ConnectRedis(cfg config.Redis) (*redis.Client, error) {
+	//调用 redis.NewClient 时不会发起任何 TCP 三次握手。
+	//即使填了一个不存在的 IP 或错误的密码，redis.NewClient 依然会成功返回指针。
+	//因此必须紧接着执行一次 Ping 探活。
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,
@@ -20,7 +24,7 @@ func ConnectRedis(cfg config.Redis) (*redis.Client, error) {
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		_ = rdb.Close() //不活就关闭
-		return nil, err
+		return nil, fmt.Errorf("ping redis: %w", err)
 	}
 	return rdb, nil
 }

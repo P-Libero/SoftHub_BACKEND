@@ -8,17 +8,20 @@ import (
 	"softhub/repository"
 	"softhub/request"
 
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 type UserService struct {
 	Repo *repository.UserRepository
+	Rdb  *redis.Client
 }
 
-func NewUserService(repo *repository.UserRepository) *UserService {
+func NewUserService(repo *repository.UserRepository, rdb *redis.Client) *UserService {
 	return &UserService{
 		Repo: repo,
+		Rdb:  rdb,
 	}
 }
 
